@@ -9,15 +9,12 @@ options:
   substitutionOption: ALLOW_LOOSE
 
 steps:
-  # 1. Build the application artifact (pom.xml lives in app/)
-  - name: gcr.io/cloud-builders/mvn
-    entrypoint: mvn
-    args: ['clean', 'package', '-DskipTests', '-f', 'app/pom.xml']
-
-  # 2. Build and tag the container image with multiple, complementary tags:
+  # 1. Build and tag the container image with multiple, complementary tags:
   #    - latest            -> convenience/debugging only, never deploy from this
   #    - sha-<short-sha>    -> immutable, traceable to the exact commit
   #    - v<date>.<time>     -> human-readable release identifier (semver-ish)
+  #    The Dockerfile is multi-stage and compiles the jar itself (see
+  #    app/Dockerfile), so there's no separate `mvn package` step here.
   - name: gcr.io/cloud-builders/docker
     entrypoint: sh
     args:
@@ -29,11 +26,11 @@ steps:
         REG=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}
         docker build -t $$REG:latest -t $$REG:sha-${SHORT_SHA} -t $$REG:$$SEMVER -f app/Dockerfile app
 
-  # 3. Push all tags to Artifact Registry
+  # 2. Push all tags to Artifact Registry
   - name: gcr.io/cloud-builders/docker
     args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}']
 
-  # 4. Capture the pushed image's digest locally (avoids calling
+  # 3. Capture the pushed image's digest locally (avoids calling
   #    `gcloud artifacts docker images describe`, which needs
   #    containeranalysis.occurrences.list — a permission the build
   #    service account usually does NOT have by default).
@@ -47,7 +44,7 @@ steps:
         REG=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}
         docker inspect --format='{{index .RepoDigests 0}}' $$REG:$$SEMVER | sed 's/.*@//' > /workspace/image_digest.txt
 
-  # 5. Clone the manifests repo, bump the dev overlay's image tag, commit, push
+  # 4. Clone the manifests repo, bump the dev overlay's image tag, commit, push
   - name: gcr.io/cloud-builders/git
     entrypoint: bash
     args:
@@ -69,7 +66,7 @@ steps:
         done
         exit 1
 
-  # 6. Create a Cloud Deploy release; the delivery pipeline (clouddeploy.yaml)
+  # 5. Create a Cloud Deploy release; the delivery pipeline (clouddeploy.yaml)
   #    handles progressive rollout through dev -> test -> prod with manual
   #    approval gates at each stage.
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
