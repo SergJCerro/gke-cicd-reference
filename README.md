@@ -9,6 +9,23 @@ GCP project and adapted.
 
 ![Pipeline architecture](docs/pipeline-diagram.png)
 
+## Live demo
+
+The sample app is deployed at **[gke-cicd-reference.onrender.com](https://gke-cicd-reference.onrender.com)**
+(Render, not GKE — see note below).
+
+- `GET /` → app info as JSON
+- `GET /health` → Spring Actuator health check
+
+Free-tier host, so the first request after idle can take ~30s to wake up.
+
+`backendVersion`/`logLevel` show `unknown` on this deployment — those values
+come from the Kubernetes ConfigMap (`gke-manifests/base/configmap.yaml`),
+which doesn't exist outside a real GKE cluster. On an actual `dev`/`test`/`prod`
+GKE deployment, `GET /` returns different values per environment with zero
+code changes — that's the actual point of the demo; Render is just here to
+prove the app itself runs.
+
 ## The app
 
 `app/` is a deliberately trivial Spring Boot service — one endpoint that
@@ -17,6 +34,11 @@ ConfigMap. It exists purely to make the pipeline demonstrable: deploy the
 same image to `dev`, `test`, and `prod` and `GET /` returns different config
 per environment, with no code change. `/health` (via Spring Actuator) backs
 the readiness/liveness probes in `gke-manifests/base/deployment.yaml`.
+
+The Dockerfile is a multi-stage build (Maven build stage → slim JRE runtime
+stage), so it's self-contained: `docker build -f app/Dockerfile app` works
+standalone on any Docker host, with no separate `mvn package` step required
+first.
 
 ## What this shows
 
