@@ -1,0 +1,33 @@
+apiVersion: skaffold/v4beta7
+kind: Config
+metadata:
+  name: sample-app
+
+manifests:
+  kustomize:
+    paths:
+      - gke-manifests/overlays/dev
+
+deploy:
+  kubectl: {}
+
+profiles:
+  - name: dev
+    manifests:
+      kustomize:
+        paths:
+          - gke-manifests/overlays/dev
+  - name: test
+    manifests:
+      kustomize:
+        paths:
+          - gke-manifests/overlays/test
+    deploy:
+      statusCheckDeadlineSeconds: 1200
+  - name: prod
+    manifests:
+      kustomize:
+        paths:
+          - gke-manifests/overlays/prod
+    deploy:
+      statusCheckDeadlineSeconds: 1200

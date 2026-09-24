@@ -1,0 +1,49 @@
+apiVersion: deploy.cloud.google.com/v1
+kind: DeliveryPipeline
+metadata:
+  name: sample-app-pipeline
+description: Progressive delivery for sample-app across dev, test, and prod
+serialPipeline:
+  stages:
+    - targetId: dev
+      profiles: [dev]
+      strategy:
+        standard:
+          verify: false
+    - targetId: test
+      profiles: [test]
+      strategy:
+        standard:
+          verify: false
+    - targetId: prod
+      profiles: [prod]
+      strategy:
+        standard:
+          verify: false
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: dev
+description: Development GKE cluster
+requireApproval: true
+gke:
+  cluster: projects/my-gcp-project/locations/us-central1/clusters/gke-dev
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: test
+description: Test/QA GKE cluster
+requireApproval: true
+gke:
+  cluster: projects/my-gcp-project/locations/us-central1/clusters/gke-test
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: prod
+description: Production GKE cluster
+requireApproval: true
+gke:
+  cluster: projects/my-gcp-project/locations/us-central1/clusters/gke-prod

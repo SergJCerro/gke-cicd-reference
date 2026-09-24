@@ -1,0 +1,95 @@
+# CI pipeline: build, tag, push, update manifests, create Cloud Deploy release.
+#
+# Trigger: git push to the app repo (branch configured in the Cloud Build trigger).
+# Downstream: gke-manifests repo (this repo) gets the image tag/digest updated
+# automatically, then a Cloud Deploy release is created for progressive rollout.
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+
+steps:
+  # 1. Build the application artifact
+  - name: gcr.io/cloud-builders/mvn
+    entrypoint: mvn
+    args: ['clean', 'package', '-DskipTests']
+
+  # 2. Build and tag the container image with multiple, complementary tags:
+  #    - latest            -> convenience/debugging only, never deploy from this
+  #    - sha-<short-sha>    -> immutable, traceable to the exact commit
+  #    - v<date>.<time>     -> human-readable release identifier (semver-ish)
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    args:
+      - '-c'
+      - |
+        set -eu
+        SEMVER="v1.$(date +%Y%m%d).$(date +%H%M)"
+        echo "$$SEMVER" > /workspace/semver.txt
+        REG=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}
+        docker build -t $$REG:latest -t $$REG:sha-${SHORT_SHA} -t $$REG:$$SEMVER -f Dockerfile .
+
+  # 3. Push all tags to Artifact Registry
+  - name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}']
+
+  # 4. Capture the pushed image's digest locally (avoids calling
+  #    `gcloud artifacts docker images describe`, which needs
+  #    containeranalysis.occurrences.list — a permission the build
+  #    service account usually does NOT have by default).
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    args:
+      - '-c'
+      - |
+        set -eu
+        SEMVER=$(cat /workspace/semver.txt)
+        REG=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}
+        docker inspect --format='{{index .RepoDigests 0}}' $$REG:$$SEMVER | sed 's/.*@//' > /workspace/image_digest.txt
+
+  # 5. Clone the manifests repo, bump the dev overlay's image tag, commit, push
+  - name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        SEMVER=$(cat /workspace/semver.txt)
+        git clone "https://oauth2:$(gcloud auth print-access-token)@github.com/${_GH_ORG}/gke-manifests.git" /workspace/manifests
+        cd /workspace/manifests
+        git config user.email "cloudbuild@${_PROJECT_ID}.iam.gserviceaccount.com"
+        git config user.name "Cloud Build"
+        sed -i "s/newTag: .*/newTag: $$SEMVER/" gke-manifests/overlays/dev/kustomization.yaml
+        git add .
+        git diff --cached --quiet || git commit -m "ci: ${_APP_NAME} -> $$SEMVER"
+        for attempt in 1 2 3; do
+          git pull --rebase origin main
+          git push origin HEAD:main && exit 0
+          sleep $((attempt * 5))
+        done
+        exit 1
+
+  # 6. Create a Cloud Deploy release; the delivery pipeline (clouddeploy.yaml)
+  #    handles progressive rollout through dev -> test -> prod with manual
+  #    approval gates at each stage.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        SEMVER=$(cat /workspace/semver.txt)
+        RELEASE_NAME="${_APP_NAME}-$(echo $$SEMVER | tr '.' '-')"
+        gcloud deploy releases create "$$RELEASE_NAME" \
+          --delivery-pipeline=${_PIPELINE_NAME} \
+          --region=us-central1 \
+          --project=${_PROJECT_ID} \
+          --source=/workspace/manifests \
+          --images=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}:$$SEMVER
+
+substitutions:
+  _APP_NAME: sample-app
+  _PROJECT_ID: my-gcp-project
+  _REGISTRY: my-registry
+  _GH_ORG: your-org
+  _PIPELINE_NAME: sample-app-pipeline
