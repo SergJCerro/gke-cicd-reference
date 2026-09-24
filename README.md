@@ -9,6 +9,15 @@ GCP project and adapted.
 
 ![Pipeline architecture](docs/pipeline-diagram.png)
 
+## The app
+
+`app/` is a deliberately trivial Spring Boot service — one endpoint that
+returns its own version and log-level, both sourced from the environment's
+ConfigMap. It exists purely to make the pipeline demonstrable: deploy the
+same image to `dev`, `test`, and `prod` and `GET /` returns different config
+per environment, with no code change. `/health` (via Spring Actuator) backs
+the readiness/liveness probes in `gke-manifests/base/deployment.yaml`.
+
 ## What this shows
 
 - **Cloud Build** as the CI stage: build the app, build/tag/push a container
@@ -28,6 +37,8 @@ GCP project and adapted.
 ## Repo layout
 
 ```
+app/                         # minimal Spring Boot service (see "The app" above)
+.github/workflows/build.yml  # CI sanity check: mvn package + docker build on every push
 cloudbuild.yaml              # CI pipeline definition
 skaffold.yaml                # deploy config consumed by Cloud Deploy
 clouddeploy.yaml             # delivery pipeline + target (dev/test/prod) definitions

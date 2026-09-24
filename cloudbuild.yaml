@@ -9,10 +9,10 @@ options:
   substitutionOption: ALLOW_LOOSE
 
 steps:
-  # 1. Build the application artifact
+  # 1. Build the application artifact (pom.xml lives in app/)
   - name: gcr.io/cloud-builders/mvn
     entrypoint: mvn
-    args: ['clean', 'package', '-DskipTests']
+    args: ['clean', 'package', '-DskipTests', '-f', 'app/pom.xml']
 
   # 2. Build and tag the container image with multiple, complementary tags:
   #    - latest            -> convenience/debugging only, never deploy from this
@@ -27,7 +27,7 @@ steps:
         SEMVER="v1.$(date +%Y%m%d).$(date +%H%M)"
         echo "$$SEMVER" > /workspace/semver.txt
         REG=us-central1-docker.pkg.dev/${_PROJECT_ID}/${_REGISTRY}/${_APP_NAME}
-        docker build -t $$REG:latest -t $$REG:sha-${SHORT_SHA} -t $$REG:$$SEMVER -f Dockerfile .
+        docker build -t $$REG:latest -t $$REG:sha-${SHORT_SHA} -t $$REG:$$SEMVER -f app/Dockerfile app
 
   # 3. Push all tags to Artifact Registry
   - name: gcr.io/cloud-builders/docker
